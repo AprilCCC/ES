@@ -1,5 +1,5 @@
 packages <- c(
-  "readxl", "dplyr", "tidyverse", "tableone", "epitools", "gtsummary", "dsr")
+  "readxl", "dplyr", "tidyverse", "tableone", "epitools", "gtsummary", "dsr","survival","survminer")
 
 lapply(packages, require, character.only = TRUE)
 
@@ -134,3 +134,31 @@ ES_data_year_year <- ES_data_count %>%
   mutate(SE = adj.rate / sqrt(count_total))
 
 write.csv(ES_data_year_year, file="D:/Sarcoma/Result/ES_data_year_year.csv",row.names=FALSE)
+
+##### survival #####
+end_year <- 2025
+
+ES_data_survival <- ES_data %>%
+  filter(!is.na(Presentation.year)) %>%
+  mutate(
+    Decease.year = suppressWarnings(as.numeric(trimws(as.character(Decease.year)))),
+    event = ifelse(Deceased == "Yes", 1, 0),
+    exit_year = ifelse(event == 0, end_year, Decease.year),
+    time = exit_year - Presentation.year)
+
+
+ES_data_survival_rate <- survfit(Surv(time, event) ~ 1, data = ES_data_survival)
+summary(ES_data_survival_rate)
+
+# median follow-up
+fit_fu <- survfit(Surv(time, 1 - event) ~ 1, data = ES_data_survival)
+summary(fit_fu)$table[c("median","0.95LCL","0.95UCL")]
+
+ggsurvplot(
+  ES_data_survival_rate, data = ES_data_survival,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  xlab = "Years since presentation",
+  ylab = "Overall survival probability"
+)
+
