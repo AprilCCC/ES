@@ -154,11 +154,13 @@ summary(ES_data_survival_rate)
 fit_fu <- survfit(Surv(time, 1 - event) ~ 1, data = ES_data_survival)
 summary(fit_fu)$table[c("median","0.95LCL","0.95UCL")]
 
-ggsurvplot(
-  ES_data_survival_rate, data = ES_data_survival,
+ggsurvplot(ES_data_survival_rate, data = ES_data_survival,
   conf.int = TRUE,
   risk.table = TRUE,
+  risk.table.height = 0.25,  
+  risk.table.y.text.col = TRUE,
+  risk.table.y.text = FALSE, 
+  ggtheme = theme_classic(base_size = 12),
   xlab = "Years since presentation",
-  ylab = "Overall survival probability"
-)
+  ylab = "Overall survival probability")
 
