@@ -10,7 +10,7 @@ age_levels <- c(
   "40-44","45-49","50-54","55-59","60-64","65-69","70-74","75-79",
   "80-84","85-89","90-94")
 
-ES_date <- ES %>%
+ES_data <- ES %>%
   mutate(Presentation.age = as.numeric(Presentation.age),
          Presentation.year = as.numeric(Presentation.year),
         year_period = cut(as.integer(Presentation.year),
@@ -21,10 +21,9 @@ ES_date <- ES %>%
          Ethnicity1=case_when(Ethnicity.category %in% c("MELAA","Missing") ~"Other/Unknown",TRUE~Ethnicity.category),
          Location = case_when(
            Extraskeletal=="Yes" ~ "Extraskeletal",
-           Site %in% c("Femur","Tibia","Fibula","Foot","Thigh","Humerus") ~ "Appendicular",
-           Site %in% c("Pelvis","Ilium","Sacrum",
-                       "Cervical spine","Thoracic spine","Lumbar spine",
-                       "Chest wall","Rib","Scapula","Clavicle") ~ "Axial",
+           Extraskeletal!="Yes" & Site %in% c("Femur","Tibia","Fibula","Foot","Thigh","Humerus","Scapula","Clavicle") ~ "Appendicular",
+           Extraskeletal!="Yes" & Site %in% c("Pelvis","Ilium","Sacrum",
+                       "Cervical spine","Thoracic spine","Lumbar spine","Chest wall","Rib") ~ "Axial",
           Site == "Missing" ~ "Missing",TRUE ~ "Other"),
         age_group = case_when(
           Presentation.age >= 0 & Presentation.age <= 90 ~ as.character(cut(
@@ -124,6 +123,7 @@ write.csv(predicted_pop, file="D:/Sarcoma/Result/predicted_pop.csv",row.names=FA
 
 ########Total ASR from 1974-2024##############
 ES_data_count <- ES_data %>%
+  #filter(Presentation.age<30)%>%
   select(Presentation.year, age_group) %>%
   group_by(Presentation.year, age_group) %>%
   summarise(count = n()) %>%
@@ -198,6 +198,103 @@ ES_rate_by_period_age <- ggplot(
     color = "Age group") +
   theme_classic()
 
+
+
+## read NZ European population data
+NZ_eth_pop <- read.csv("D:/Sarcoma/Data/Estimated Resident Population by Ethinicity.csv")%>%
+  filter(Ethnic.group=="European or Other (including New Zealander)", Sex=="Total people",
+         !age %in% c("Total people, age","80 Years and over","65 Years and over","95 Years and over","90  Years and over",
+                     "0-14 Years","15-39 Years","40-64 Years"))%>%
+  mutate(
+    age = trimws(age) %>%
+      gsub("\\s+Years$", "", .))
+
+####use linear regression to predict ethnicity population each year,by accepting the values for the census year
+years_with_actuals <- c(2018, 2013, 2006, 2001, 1996, 1991, 1986, 1981, 2023)
+years_to_predict <- setdiff(1970:2024, years_with_actuals)
+
+# Create an empty data frame to store results
+predicted_pop <- data.frame()
+
+age_groups <- unique(NZ_eth_pop$age)
+
+# Loop over each age group
+for (age in age_groups) {
+  # Filter data for the current age group, total population
+  age_data <- NZ_eth_pop %>% filter(age == !!age)
+  
+  # Fit the linear regression model for the current age group and ethnicity
+  model <- lm(Population ~ Year, data = age_data, na.action = na.exclude)
+  
+  # Create a data frame for all years to predict
+  all_years <- data.frame(Year = years_to_predict)
+  
+  # Predict population for the specified years
+  predictions <- predict(model, newdata = all_years)
+  
+  # Round predictions to the nearest integer
+  rounded_predictions <- round(predictions)
+  
+  # Combine predictions with year, age group, and ethnicity
+  age_predictions <- data.frame(
+    Year = years_to_predict,
+    age = age,
+    predicted_pop = rounded_predictions)
+  
+  # Retrieve actual values for specified years
+  actual_values <- age_data %>%
+    filter(Year %in% years_with_actuals) %>%
+    select(Year, age, Population) %>%
+    rename(predicted_pop = Population)  # Rename Value to match the predictions data frame
+  
+  # Combine actual values and predictions
+  combined_results <- rbind(
+    actual_values,
+    age_predictions %>% filter(!Year %in% years_with_actuals)  # Filter out years with actual values
+  )
+  # Append the results to the cumulative data frame
+  predicted_pop <- rbind(predicted_pop, combined_results)}
+
+# add WHO pop
+WHO_pop <- data.frame(
+  age = c("0-4","5-9","10-14","15-19","20-24","25-29","30-34","35-39","40-44",
+          "45-49","50-54","55-59","60-64","65-69","70-74","75-79","80-84","85-89"),
+  WHO_pop = c(88569,85970,84670,82171,79272,76073,71475,65877,60379,
+              86870,53681,45484,37187,29590,22092,15195,9097,4398))
+# left join
+predicted_EU_pop <- predicted_pop %>%
+  left_join(WHO_pop, by = "age")
+
+write.csv(predicted_EU_pop, file="D:/Sarcoma/Result/predicted_EU_pop.csv",row.names=FALSE)
+
+########Total ASR from 1970-2024##############
+ES_data_count <- ES_data %>%
+  filter(Ethnicity1=="European")%>%
+  select(Presentation.year, age_group) %>%
+  group_by(Presentation.year, age_group) %>%
+  summarise(count = n()) %>%
+  left_join(predicted_EU_pop, by = c("Presentation.year" = "Year","age_group" = "age"))
+
+
+ES_data_year_total_ASR <-  ES_data_count %>%
+  filter(age_group!="Unknown")%>%
+  group_by(age_group)%>%
+  summarise(count_total=sum(count), Population_total=sum(predicted_pop),pop=unique(WHO_pop))%>%
+  summarise(age_adjust=list(ageadjust.direct(count=count_total, pop=Population_total/1e5, stdpop=pop, rate=NULL,conf.level = 0.95))) %>%
+  mutate(age_adjust = map(age_adjust, ~as.data.frame.list(.))) %>%
+  unnest(cols = c(age_adjust)) 
+
+##ASR each year, 1970-2024
+ES_data_year_year <- ES_data_count %>%
+  filter(age_group!="Unknown")%>%
+  group_by(Presentation.year) %>%
+  summarise(count_total=sum(count), Population_total=sum(predicted_pop),
+            age_adjust=list(ageadjust.direct(count=count, pop=predicted_pop/1e5, stdpop=WHO_pop, rate=NULL,conf.level = 0.95))) %>%
+  mutate(age_adjust = map(age_adjust, ~as.data.frame.list(.))) %>%
+  unnest(cols = c(age_adjust)) %>%
+  mutate(SE = adj.rate / sqrt(count_total))
+
+write.csv(ES_data_year_year, file="D:/Sarcoma/Result/ES_data_year_year.csv",row.names=FALSE)
 
 
 ## read NZ Maori population data
@@ -295,9 +392,6 @@ ES_data_year_year <- ES_data_count %>%
   mutate(SE = adj.rate / sqrt(count_total))
 
 write.csv(ES_data_year_year, file="D:/Sarcoma/Result/ES_data_year_year.csv",row.names=FALSE)
-
-
-
 
 ##### survival #####
 end_year <- 2025
