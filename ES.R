@@ -1,5 +1,5 @@
 packages <- c(
-  "readxl", "dplyr", "tidyverse", "tableone", "epitools", "gtsummary", "dsr","survival","survminer")
+  "readxl", "dplyr", "tidyverse", "tableone", "epitools", "gtsummary", "dsr","survival","survminer","splines")
 
 lapply(packages, require, character.only = TRUE)
 
@@ -60,11 +60,9 @@ ES_data %>%
 ## read NZ population data
 NZ_pop <- read.csv("D:/Sarcoma/Data/nz_population_age_sex_1971_2024.csv") 
 
-####use linear regression to predict ethnicity population each year,by accepting the values for the census year
-years_to_predict <- 1970:1990
-years_with_actuals <- c(
-  1971, 1976, 1981,1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 
-  2009, 2010,2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024)
+years_with_actuals <- c(1971, 1976, 1981, 1991:2024)
+years_all <- 1970:2024
+years_to_predict <- setdiff(years_all, years_with_actuals)
 
 # Create an empty data frame to store results
 predicted_pop <- data.frame()
@@ -73,40 +71,41 @@ age_groups <- unique(NZ_pop$age)
 
 # Loop over each age group
 for (age in age_groups) {
-    # Filter data for the current age group, total population
+  # Filter data for the current age group, total population
   age_data <- NZ_pop %>% filter(Sex == "Total", age == !!age)
-    
-    # Fit the linear regression model for the current age group and ethnicity
-  model <- lm(Population ~ year, data = age_data, na.action = na.exclude)
-    
-    # Create a data frame for all years to predict
-  all_years <- data.frame(year = years_to_predict)
-    
-    # Predict population for the specified years
+  
+  # Fit the linear regression model for the current age group and ethnicity
+  model <- lm(Population ~ Year, data = age_data, na.action = na.exclude)
+  
+  # Create a data frame for all years to predict
+  all_years <- data.frame(Year = years_to_predict)
+  
+  # Predict population for the specified years
   predictions <- predict(model, newdata = all_years)
-    
-    # Round predictions to the nearest integer
+  
+  # Round predictions to the nearest integer
   rounded_predictions <- round(predictions)
-    
-    # Combine predictions with year, age group, and ethnicity
+  
+  # Combine predictions with year, age group, and ethnicity
   age_predictions <- data.frame(
-      year = years_to_predict,
-      age = age,
-      predicted_pop = rounded_predictions)
-    
-    # Retrieve actual values for specified years
-    actual_values <- age_data %>%
-      filter(year %in% years_with_actuals) %>%
-      select(year, age, Population) %>%
-      rename(predicted_pop = Population)  # Rename Value to match the predictions data frame
-    
-    # Combine actual values and predictions
-    combined_results <- rbind(
-      actual_values,
-      age_predictions %>% filter(!year %in% years_with_actuals)  # Filter out years with actual values
-    )
-    # Append the results to the cumulative data frame
-    predicted_pop <- rbind(predicted_pop, combined_results)}
+    Year = years_to_predict,
+    age = age,
+    predicted_pop = rounded_predictions)
+  
+  # Retrieve actual values for specified years
+  actual_values <- age_data %>%
+    filter(Year %in% years_with_actuals) %>%
+    select(Year, age, Population) %>%
+    rename(predicted_pop = Population)  # Rename Value to match the predictions data frame
+  
+  # Combine actual values and predictions
+  combined_results <- rbind(
+    actual_values,
+    age_predictions %>% filter(!Year %in% years_with_actuals)  # Filter out years with actual values
+  )
+  # Append the results to the cumulative data frame
+  predicted_pop <- rbind(predicted_pop, combined_results)}
+
 
 # add WHO pop
 WHO_pop <- data.frame(
@@ -127,14 +126,13 @@ ES_data_count <- ES_data %>%
   select(Presentation.year, age_group) %>%
   group_by(Presentation.year, age_group) %>%
   summarise(count = n()) %>%
-  left_join(predicted_pop, by = c("Presentation.year" = "year","age_group" = "age"))
-
+  left_join(predicted_pop, by = c("Presentation.year" = "Year","age_group" = "age"))
 
 ES_data_year_total_ASR <-  ES_data_count %>%
   filter(age_group!="Unknown")%>%
   group_by(age_group)%>%
   summarise(count_total=sum(count), Population_total=sum(predicted_pop),pop=unique(WHO_pop))%>%
-  summarise(age_adjust=list(ageadjust.direct(count=count_total, pop=Population_total/1e5, stdpop=pop, rate=NULL,conf.level = 0.95))) %>%
+  summarise(age_adjust=list(ageadjust.direct(count=count_total, pop=Population_total/1e6, stdpop=pop, rate=NULL,conf.level = 0.95))) %>%
   mutate(age_adjust = map(age_adjust, ~as.data.frame.list(.))) %>%
   unnest(cols = c(age_adjust)) 
 
@@ -151,7 +149,7 @@ ES_data_year_year <- ES_data_count %>%
 write.csv(ES_data_year_year, file="D:/Sarcoma/Result/ES_data_year_year.csv",row.names=FALSE)
 
 
-########age group ASR from 1974-2024##############
+#### age group ASR from 1974-2024####
 ES_data_count <- ES_data %>%
   filter(age_group=="0-4")%>%
   select(Presentation.year, age_group) %>%
@@ -216,18 +214,18 @@ ES_data_EWSR1_total_ASR <-  ES_data_EWSR1_count %>%
   unnest(cols = c(age_adjust)) 
 
 
-## read NZ European population data
+# read NZ European population data ----
 NZ_eth_pop <- read.csv("D:/Sarcoma/Data/Estimated Resident Population by Ethinicity.csv")%>%
   filter(Ethnic.group=="European or Other (including New Zealander)", Sex=="Total people",
          !age %in% c("Total people, age","80 Years and over","65 Years and over","95 Years and over","90  Years and over",
-                     "0-14 Years","15-39 Years","40-64 Years"))%>%
+                     "0-14 Years","15-39 Years","40-64 Years", "90-94 Years"))%>%
   mutate(
     age = trimws(age) %>%
       gsub("\\s+Years$", "", .))
 
-####use linear regression to predict ethnicity population each year,by accepting the values for the census year
-years_with_actuals <- c(2018, 2013, 2006, 2001, 1996, 1991, 1986, 1981, 2023)
-years_to_predict <- setdiff(1970:2024, years_with_actuals)
+years_with_actuals <- c(2023, 2018, 2013, 2006, 2001, 1996, 1991, 1986, 1981, 1976)
+years_all <- 1970:2024
+years_to_predict <- setdiff(years_all, years_with_actuals)
 
 # Create an empty data frame to store results
 predicted_pop <- data.frame()
@@ -237,7 +235,7 @@ age_groups <- unique(NZ_eth_pop$age)
 # Loop over each age group
 for (age in age_groups) {
   # Filter data for the current age group, total population
-  age_data <- NZ_eth_pop %>% filter(age == !!age)
+  age_data <- NZ_eth_pop %>% filter(Sex == "Total people", age == !!age)
   
   # Fit the linear regression model for the current age group and ethnicity
   model <- lm(Population ~ Year, data = age_data, na.action = na.exclude)
@@ -271,6 +269,7 @@ for (age in age_groups) {
   # Append the results to the cumulative data frame
   predicted_pop <- rbind(predicted_pop, combined_results)}
 
+
 # add WHO pop
 WHO_pop <- data.frame(
   age = c("0-4","5-9","10-14","15-19","20-24","25-29","30-34","35-39","40-44",
@@ -283,20 +282,20 @@ predicted_EU_pop <- predicted_pop %>%
 
 write.csv(predicted_EU_pop, file="D:/Sarcoma/Result/predicted_EU_pop.csv",row.names=FALSE)
 
-########Total European ASR from 1970-2024##############
+# Total European ASR from 1970-2024 ##
 ES_data_count <- ES_data %>%
-  filter(Ethnicity1=="European", FISH.for.EWSR1=="Positive")%>%
+  filter(Ethnicity1=="European",FISH.for.EWSR1=="Positive")%>%  #, FISH.for.EWSR1=="Positive"
   select(Presentation.year, age_group) %>%
   group_by(Presentation.year, age_group) %>%
   summarise(count = n()) %>%
   left_join(predicted_EU_pop, by = c("Presentation.year" = "Year","age_group" = "age"))
 
 
-ES_data_year_total_ASR <-  ES_data_count %>%
+ES_data_EU_total_ASR <-  ES_data_count %>%
   filter(age_group!="Unknown")%>%
   group_by(age_group)%>%
   summarise(count_total=sum(count), Population_total=sum(predicted_pop),pop=unique(WHO_pop))%>%
-  summarise(age_adjust=list(ageadjust.direct(count=count_total, pop=Population_total/1e5, stdpop=pop, rate=NULL,conf.level = 0.95))) %>%
+  summarise(age_adjust=list(ageadjust.direct(count=count_total, pop=Population_total/1e6, stdpop=pop, rate=NULL,conf.level = 0.95))) %>%
   mutate(age_adjust = map(age_adjust, ~as.data.frame.list(.))) %>%
   unnest(cols = c(age_adjust)) 
 
@@ -305,7 +304,7 @@ ES_data_year_year <- ES_data_count %>%
   filter(age_group!="Unknown")%>%
   group_by(Presentation.year) %>%
   summarise(count_total=sum(count), Population_total=sum(predicted_pop),
-            age_adjust=list(ageadjust.direct(count=count, pop=predicted_pop/1e5, stdpop=WHO_pop, rate=NULL,conf.level = 0.95))) %>%
+            age_adjust=list(ageadjust.direct(count=count, pop=predicted_pop/1e6, stdpop=WHO_pop, rate=NULL,conf.level = 0.95))) %>%
   mutate(age_adjust = map(age_adjust, ~as.data.frame.list(.))) %>%
   unnest(cols = c(age_adjust)) %>%
   mutate(SE = adj.rate / sqrt(count_total))
@@ -313,18 +312,18 @@ ES_data_year_year <- ES_data_count %>%
 write.csv(ES_data_year_year, file="D:/Sarcoma/Result/ES_data_year_year.csv",row.names=FALSE)
 
 
-## read NZ Maori population data
+##### read NZ Maori population data ####
 NZ_eth_pop <- read.csv("D:/Sarcoma/Data/Estimated Resident Population by Ethinicity.csv")%>%
   filter(Ethnic.group=="Maori", Sex=="Total people",
          !age %in% c("Total people, age","80 Years and over","65 Years and over","95 Years and over","90  Years and over",
-                     "0-14 Years","15-39 Years","40-64 Years"))%>%
+                     "0-14 Years","15-39 Years","40-64 Years", "90-94 Years"))%>%
   mutate(
     age = trimws(age) %>%
       gsub("\\s+Years$", "", .))
 
-####use linear regression to predict ethnicity population each year,by accepting the values for the census year
-years_with_actuals <- c(2018, 2013, 2006, 2001, 1996, 1991, 1986, 1973, 1970, 2023)
-years_to_predict <- setdiff(1970:2024, years_with_actuals)
+years_with_actuals <- c(2023, 2018, 2013, 2006, 2001, 1996, 1991, 1986, 1981, 1976,1971,1966)
+years_all <- 1970:2024
+years_to_predict <- setdiff(years_all, years_with_actuals)
 
 # Create an empty data frame to store results
 predicted_pop <- data.frame()
@@ -334,7 +333,7 @@ age_groups <- unique(NZ_eth_pop$age)
 # Loop over each age group
 for (age in age_groups) {
   # Filter data for the current age group, total population
-  age_data <- NZ_eth_pop %>% filter(age == !!age)
+  age_data <- NZ_eth_pop %>% filter(Sex == "Total people", age == !!age)
   
   # Fit the linear regression model for the current age group and ethnicity
   model <- lm(Population ~ Year, data = age_data, na.action = na.exclude)
@@ -380,7 +379,7 @@ predicted_maori_pop <- predicted_pop %>%
 
 write.csv(predicted_maori_pop, file="D:/Sarcoma/Result/predicted_maori_pop.csv",row.names=FALSE)
 
-########Total ASR from 1974-2024##############
+#### Total ASR from 1974-2024###
 ES_data_count <- ES_data %>%
   filter(Ethnicity1=="Maori",FISH.for.EWSR1=="Positive")%>%
   select(Presentation.year, age_group) %>%
@@ -418,51 +417,44 @@ NZ_eth_pop <- read.csv("D:/Sarcoma/Data/Estimated Resident Population by Ethinic
     age = trimws(age) %>%
       gsub("\\s+Years$", "", .))
 
-####use linear regression to predict ethnicity population each year,by accepting the values for the census year
-years_with_actuals <- c(2018, 2013, 2006, 2001, 1996, 1991, 1986, 1981, 2023)
-years_to_predict <- setdiff(1970:2024, years_with_actuals)
+years_with_actuals <- c(2023, 2018, 2013, 2006, 2001, 1996, 1991, 1986, 1981, 1976)
+years_all <- 1970:2024
+# Keep only census-year observations (anchor points) and drop missing values
+NZ_eth_pop2 <- NZ_eth_pop %>%
+  filter(Year %in% years_with_actuals) %>%
+  filter(!is.na(Population))
 
-# Create an empty data frame to store results
-predicted_pop <- data.frame()
-
-age_groups <- unique(NZ_eth_pop$age)
-
-# Loop over each age group
-for (age in age_groups) {
-  # Filter data for the current age group, total population
-  age_data <- NZ_eth_pop %>% filter(age == !!age)
-  
-  # Fit the linear regression model for the current age group and ethnicity
-  model <- lm(Population ~ Year, data = age_data, na.action = na.exclude)
-  
-  # Create a data frame for all years to predict
-  all_years <- data.frame(Year = years_to_predict)
-  
-  # Predict population for the specified years
-  predictions <- predict(model, newdata = all_years)
-  
-  # Round predictions to the nearest integer
-  rounded_predictions <- round(predictions)
-  
-  # Combine predictions with year, age group, and ethnicity
-  age_predictions <- data.frame(
-    Year = years_to_predict,
-    age = age,
-    predicted_pop = rounded_predictions)
-  
-  # Retrieve actual values for specified years
-  actual_values <- age_data %>%
-    filter(Year %in% years_with_actuals) %>%
-    select(Year, age, Population) %>%
-    rename(predicted_pop = Population)  # Rename Value to match the predictions data frame
-  
-  # Combine actual values and predictions
-  combined_results <- rbind(
-    actual_values,
-    age_predictions %>% filter(!Year %in% years_with_actuals)  # Filter out years with actual values
-  )
-  # Append the results to the cumulative data frame
-  predicted_pop <- rbind(predicted_pop, combined_results)}
+# Fit a model separately for each age group and predict annual population counts:
+# - If there are fewer than 3 observed points for an age group, fit a simple linear regression
+# - Otherwise, fit a smoother model using a natural cubic spline (more flexible than a straight line)
+# - Predict population for every year from 1970 to 2024
+# - Constrain predictions to be non-negative and round to whole persons
+predicted_pop_reg <- NZ_eth_pop2 %>%
+  group_by(age) %>%
+  group_modify(~{
+    # Data for the current age group
+    df <- .x %>% arrange(Year)
+    
+    # Choose model complexity based on available data points
+    if (nrow(df) < 3) {
+      # Too few points for a spline: use a linear trend
+      fit <- lm(Population ~ Year, data = df)
+    } else {
+      # Use a natural spline to allow non-linear trends over time
+      # (requires splines package; use splines::ns to avoid attaching the package)
+      fit <- lm(Population ~ splines::ns(Year, df = 4), data = df)
+    }
+    
+    # Predict annual population for the full year range
+    yhat <- predict(fit, newdata = data.frame(Year = years_all))
+    
+    # Return a complete annual series for this age group
+    tibble(
+      Year = years_all,
+      predicted_pop = pmax(0, round(yhat))  # enforce non-negative, integer counts
+    )
+  }) %>%
+  ungroup()
 
 # add WHO pop
 WHO_pop <- data.frame(
