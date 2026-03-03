@@ -59,7 +59,7 @@ ES_data %>%
 
 # characteristics by EWSR1 testing -----
 EWSR1_Table <- ES_data %>%
-  filter(Presentation.year>=1998)%>%
+  #filter(Presentation.year>=1998)%>%
   select(Presentation.age,Gender,Ethnicity1,year_period,Rurality,Laterality,Location,Extraskeletal,Metastasis.at.diagnosis,
          Surgery,Chemotherapy,Radiotherapy,FISH.for.EWSR1) %>%
   mutate(Ethnicity1 = fct_relevel(Ethnicity1, c("Maori", "Pacific", "Asian", "European", "Other/Unknown"))) %>% 
@@ -71,6 +71,15 @@ EWSR1_Table <- ES_data %>%
     statistic = list(all_continuous() ~ "{median} ({p25}, {p75})"),
     digits = list(all_categorical() ~ c(0, 1)))
 
+ES_data %>%
+  filter(!is.na(Presentation.year), !is.na(FISH.for.EWSR1)) %>%
+  count(Presentation.year, FISH.for.EWSR1, name = "n") %>%
+  ggplot(aes(x = Presentation.year, y = n, color = FISH.for.EWSR1, group = FISH.for.EWSR1)) +
+  scale_x_continuous(breaks = seq(1970, 2024, by = 5), limits = c(1970, 2024)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(x = "Presentation year", y = "Number of cases", color = "FISH for EWSR1") +
+  theme_classic()
 
 # read NZ total population data-----
 NZ_pop <- read.csv("D:/Sarcoma/Data/nz_population_age_sex_1971_2024.csv")%>%
@@ -357,13 +366,14 @@ write.csv(predicted_maori_pop, file="D:/Sarcoma/Result/predicted_maori_pop.csv",
 
 #### Total ASR from 1974-2024###
 ES_data_count <- ES_data %>%
-  filter(Ethnicity1=="Maori",FISH.for.EWSR1=="Positive")%>% #,FISH.for.EWSR1=="Positive"
+  filter(Ethnicity1=="Maori")%>% #,FISH.for.EWSR1=="Positive"
   select(Presentation.year, age_group) %>%
   group_by(Presentation.year, age_group) %>%
   summarise(count = n()) %>%
   left_join(predicted_maori_pop, by = c("Presentation.year" = "Year","age_group" = "age"))
 
 ES_data_maori_total_ASR <-  ES_data_count %>%
+  #filter(age_group %in% c("0-4","5-9","10-14","15-19"),Presentation.year>=1993, Presentation.year<=2012) %>%
   filter(age_group!="Unknown")%>%
   group_by(age_group)%>%
   summarise(count_total=sum(count), Population_total=sum(predicted_pop),pop=unique(WHO_pop))%>%
@@ -392,7 +402,7 @@ NZ_eth_pop <- read.csv("D:/Sarcoma/Data/Estimated Resident Population by Ethinic
     age = trimws(age) %>%
       gsub("\\s+Years$", "", .))
 
-years_with_actuals <- c(2023, 2018, 2013, 2006, 2001, 1996, 1991, 1986, 1981, 1973,1971)
+years_with_actuals <- c(2023, 2018, 2013, 2006, 2001, 1996, 1991, 1986, 1981, 1976)
 years_all <- 1970:2024
 years_to_predict <- setdiff(years_all, years_with_actuals)
 
@@ -448,6 +458,7 @@ ES_data_Pacific_count <- ES_data %>%
 
 
 ES_data_Pacific_total_ASR <-  ES_data_Pacific_count %>%
+  #filter(age_group %in% c("10-14","15-19"),Presentation.year>=2003, Presentation.year<=2012) %>%
   filter(age_group!="Unknown")%>%
   group_by(age_group)%>%
   summarise(count_total=sum(count), Population_total=sum(predicted_pop),pop=unique(WHO_pop))%>%
