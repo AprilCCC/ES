@@ -177,30 +177,43 @@ ES_data_year_year <- ES_data_count %>%
 write.csv(ES_data_year_year, file="D:/Sarcoma/Result/ES_data_year_year.csv",row.names=FALSE)
 
 
-# age group ASR from 1974-2024
+# age group ASR from 1974-2024 -----
 ES_data_count <- ES_data %>%
-  filter(age_group=="0-4")%>%
+  filter(age_group=="25-29")%>%
   select(Presentation.year, age_group) %>%
   group_by(Presentation.year, age_group) %>%
-  summarise(count = n()) %>%
-  left_join(predicted_pop, by = c("Presentation.year" = "year","age_group" = "age"))
-
+  summarise(count = n(), .groups = "drop") %>%
+  right_join(predicted_pop, by = c("Presentation.year" = "Year","age_group" = "age")) %>%
+  mutate(count = tidyr::replace_na(count, 0))%>%
+  filter(age_group=="25-29")
 
 ES_data_year_total_ASR <-  ES_data_count %>%
   filter(age_group!="Unknown")%>%
   group_by(age_group)%>%
-  summarise(count_total=sum(count), Population_total=sum(predicted_pop),pop=unique(WHO_pop))%>%
+  summarise(count_total=sum(count), Population_total=sum(predicted_pop),pop=unique(WHO_pop),.groups = "drop")%>%
   summarise(age_adjust=list(ageadjust.direct(count=count_total, pop=Population_total/1e6, stdpop=pop, rate=NULL,conf.level = 0.95))) %>%
   mutate(age_adjust = map(age_adjust, ~as.data.frame.list(.))) %>%
-  unnest(cols = c(age_adjust)) 
+  unnest(cols = c(age_adjust))  
 
-## age group ASR each period, 1970-2024
+# age group ASR each period, 1970-2024 -----
+age_levels <- c("0-4","5-9","10-14","15-19","20-24","25-29")
+
+predicted_pop_period <- predicted_pop %>%
+  mutate(
+    year_period = cut(as.integer(Year),
+                      c(1970,1981,1992,2003,2014,2025),
+                      right = FALSE,
+                      labels = c("1970-1980","1981-1991","1992-2002","2003-2013","2014-2024")))%>%
+  group_by(year_period, age) %>%
+  summarise(predicted_pop = sum(predicted_pop, na.rm = TRUE), .groups = "drop")
+
 ES_data_count <- ES_data %>%
   filter(Presentation.age<30) %>%
-  count(year_period, Presentation.year, age_group, name = "count") %>%
-  left_join(predicted_pop, by = c("Presentation.year" = "year", "age_group" = "age"))
+  count(year_period, age_group, name = "count") %>%
+  right_join(predicted_pop_period, by = c("year_period" = "year_period", "age_group" = "age")) %>%
+  mutate(count = tidyr::replace_na(count, 0))%>%
+  filter(age_group %in% age_levels)
 
-age_levels <- c("0-4","5-9","10-14","15-19","20-24","25-29")
 
 ES_rate_by_period <- ES_data_count %>%
   mutate(age_group = factor(age_group, levels = age_levels))%>%
@@ -208,7 +221,7 @@ ES_rate_by_period <- ES_data_count %>%
   summarise(
     count_total = sum(count, na.rm = TRUE),
     Population_total = sum(predicted_pop, na.rm = TRUE),
-    crude_rate_per100k = (count_total / Population_total) * 1e5,
+    crude_rate_per100k = (count_total / Population_total) * 1e6,
     .groups = "drop")
 
 # age specific IR -----
@@ -217,20 +230,23 @@ ES_rate_by_period_age <- ggplot(
   aes(x = year_period, y = crude_rate_per100k, group = age_group, color = age_group)) +
   geom_line(linewidth=2) +
   geom_point(size = 3) +
-  scale_y_continuous(limits = c(0, 1.2), breaks = seq(0, 1.2, 0.2)) +
+  scale_y_continuous(limits = c(0, 10), breaks = seq(0, 10, 2)) +
   labs(
     x = "Year period",
-    y = "Crude incidence rate per 100,000",
+    y = "age specific incidence rate per million",
     color = "Age group") +
   theme_classic()
 
 # ASR by EWSR1 testing from 1974-2024 -----
 ES_data_EWSR1_count <- ES_data %>%
   #filter(Presentation.age<30)%>%
+  filter(age_group %in% paste(seq(0, 45, by = 5), seq(4, 49, by = 5), sep = "-")) %>%
   select(Presentation.year, age_group,FISH.for.EWSR1) %>%
   group_by(Presentation.year, age_group,FISH.for.EWSR1) %>%
-  summarise(count = n()) %>%
-  left_join(predicted_pop, by = c("Presentation.year" = "year","age_group" = "age"))
+  summarise(count = n(), .groups = "drop") %>%
+  right_join(predicted_pop, by = c("Presentation.year" = "Year","age_group" = "age"))%>%
+  mutate(count = tidyr::replace_na(count, 0)) %>%
+  filter(age_group %in% paste(seq(0, 45, by = 5), seq(4, 49, by = 5), sep = "-"))
 
 
 ES_data_EWSR1_total_ASR <-  ES_data_EWSR1_count %>%
@@ -299,13 +315,13 @@ write.csv(predicted_EU_pop, file="D:/Sarcoma/Result/predicted_EU_pop.csv",row.na
 # Total European ASR from 1970-2024 ##
 ES_data_count <- ES_data %>%
   filter(Ethnicity1=="European")%>%  #, FISH.for.EWSR1=="Positive"
-  filter(age_group%in%c("10-14","15-19"), Presentation.year>=2003,Presentation.year<=2012)%>%
+  filter(age_group %in% paste(seq(0, 45, by = 5), seq(4, 49, by = 5), sep = "-")) %>%
   select(Presentation.year, age_group) %>%
   group_by(Presentation.year, age_group) %>%
   summarise(count = n(), .groups = "drop") %>%
   right_join(predicted_EU_pop, by = c("Presentation.year" = "Year","age_group" = "age"))%>%
   mutate(count = tidyr::replace_na(count, 0)) %>%
-  filter(age_group%in%c("10-14","15-19"), Presentation.year>=2003,Presentation.year<=2012)
+  filter(age_group %in% paste(seq(0, 45, by = 5), seq(4, 49, by = 5), sep = "-")) 
 
 
 ES_data_EU_total_ASR <-  ES_data_count %>%
@@ -386,13 +402,13 @@ write.csv(predicted_maori_pop, file="D:/Sarcoma/Result/predicted_maori_pop.csv",
 #### Total ASR from 1974-2024###
 ES_data_count <- ES_data %>%
   filter(Ethnicity1=="Maori")%>% #,FISH.for.EWSR1=="Positive"
-  filter(age_group%in%c("10-14","15-19"), Presentation.year>=2003,Presentation.year<=2012)%>%
+  filter(age_group %in% paste(seq(0, 45, by = 5), seq(4, 49, by = 5), sep = "-")) %>%
   select(Presentation.year, age_group) %>%
   group_by(Presentation.year, age_group) %>%
   summarise(count = n(), .groups = "drop") %>%
   right_join(predicted_maori_pop, by = c("Presentation.year" = "Year","age_group" = "age"))%>%
   mutate(count = tidyr::replace_na(count, 0)) %>%
-  filter(age_group%in%c("10-14","15-19"), Presentation.year>=2003,Presentation.year<=2012)
+  filter(age_group %in% paste(seq(0, 45, by = 5), seq(4, 49, by = 5), sep = "-")) 
 
 ES_data_maori_total_ASR <-  ES_data_count %>%
   filter(age_group!="Unknown")%>%
@@ -472,13 +488,13 @@ write.csv(predicted_Pacific_pop, file="D:/Sarcoma/Result/predicted_Pacific_pop.c
 ### Total ASR from 1974-2024 ###
 ES_data_Pacific_count <- ES_data %>%
   filter(Ethnicity1=="Pacific")%>% #,FISH.for.EWSR1=="Positive"
-  filter(age_group%in%c("10-14","15-19"), Presentation.year>=2003,Presentation.year<=2012)%>%
+  filter(age_group %in% paste(seq(0, 45, by = 5), seq(4, 49, by = 5), sep = "-")) %>%
   select(Presentation.year, age_group) %>%
   group_by(Presentation.year, age_group) %>%
   summarise(count = n(), .groups = "drop") %>%
   right_join(predicted_Pacific_pop, by = c("Presentation.year" = "Year","age_group" = "age")) %>%
   mutate(count = tidyr::replace_na(count, 0)) %>%
-  filter(age_group%in%c("10-14","15-19"), Presentation.year>=2003,Presentation.year<=2012)
+  filter(age_group %in% paste(seq(0, 45, by = 5), seq(4, 49, by = 5), sep = "-"))
 
 
 ES_data_Pacific_total_ASR <-  ES_data_Pacific_count %>%
