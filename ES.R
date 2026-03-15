@@ -35,6 +35,9 @@ ES_data <- ES %>%
           TRUE ~ "Unknown"),
         age_group = factor(age_group, levels = c(age_levels, "Unknown")))
 
+write.csv(ES_data, file="D:/Sarcoma/Result/ES_data.csv",row.names=FALSE)
+
+
 #Table 1 -----
 Table1 <- ES_data %>%
   select(Presentation.age,Gender,Ethnicity1,year_period,Rurality,Laterality,Location,Extraskeletal,Metastasis.at.diagnosis,
