@@ -200,6 +200,7 @@ predicted_pop_period <- predicted_pop %>%
 ES_data_period_count <- ES_data %>%
   #filter(age_group %in% paste(seq(0, 45, by = 5), seq(4, 49, by = 5), sep = "-")) %>%
   filter(age_group %in% c("10-14","15-19"))%>%
+  # select age group"0-4","5-9","10-14","15-19","20-24","25-29","30-34","35-39","40-44","45-49"
   select(Presentation.year, age_group,Presentation.age) %>%
   mutate(
     year_period = cut(as.integer(Presentation.year),
@@ -267,7 +268,7 @@ predicted_pop_period <- predicted_pop %>%
   summarise(predicted_pop = sum(predicted_pop, na.rm = TRUE), .groups = "drop")
 
 ES_data_count <- ES_data %>%
-  filter(Presentation.age<=9) %>%
+  #filter(Presentation.age<=9) %>%
   count(year_period, age_group, name = "count") %>%
   right_join(predicted_pop_period, by = c("year_period" = "year_period", "age_group" = "age")) %>%
   mutate(count = tidyr::replace_na(count, 0))%>%
