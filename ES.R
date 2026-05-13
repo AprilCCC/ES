@@ -3,7 +3,7 @@ packages <- c(
 
 lapply(packages, require, character.only = TRUE)
 
-ES <- read.csv("D:/Sarcoma/Data/EwingSarcoma_DATA_LABELS_2026-02-10_1703.csv") 
+ES <- read.csv("D:/Sarcoma/Data/EwingSarcoma_DATA_LABELS_2026-05-13_1758.csv") 
 
 age_levels <- c(
   "0-4","5-9","10-14","15-19","20-24","25-29","30-34","35-39",
@@ -614,31 +614,124 @@ write.csv(ES_data_year_year, file="D:/Sarcoma/Result/ES_data_year_year.csv",row.
 
 
 
-##### survival #####
-end_year <- 2025
-
+### survival #####
 ES_data_survival <- ES_data %>%
-  filter(!is.na(Presentation.year)) %>%
+  filter(
+    !is.na(Diagnosis.date),
+    Diagnosis.date != "Missing",
+    Diagnosis.date != ""
+  ) %>%
   mutate(
-    Decease.year = suppressWarnings(as.numeric(trimws(as.character(Decease.year)))),
-    event = ifelse(Deceased == "Yes", 1, 0),
-    exit_year = ifelse(event == 0, end_year, Decease.year),
-    time = exit_year - Presentation.year)
+    Diagnosis.date = as.Date(Diagnosis.date),
+    Date.of.death = as.Date(Date.of.death),
+    censor_date = as.Date("2025-06-30"),
+    end_date = if_else(
+      is.na(Date.of.death),
+      censor_date,
+      Date.of.death),
+    status = if_else(is.na(Date.of.death), 0, 1),  # 1 = died, 0 = censored
+    survival_days = as.numeric(end_date - Diagnosis.date),
+    survival_years = survival_days / 365.25)
 
 
-ES_data_survival_rate <- survfit(Surv(time, event) ~ 1, data = ES_data_survival)
+ES_data_survival_rate <- survfit(Surv(survival_years, status) ~ 1, data = ES_data_survival)
 summary(ES_data_survival_rate)
 
+# Overall survival rates at 1, 5, and 10 years
+surv_summary <- summary(
+  ES_data_survival_rate,
+  times = c(5, 10,15)
+)
+
+survival_rates <- data.frame(
+  time_years = surv_summary$time,
+  survival_rate = surv_summary$surv,
+  lower_95_CI = surv_summary$lower,
+  upper_95_CI = surv_summary$upper
+) %>%
+  mutate(
+    survival_rate_percent = round(survival_rate * 100, 1),
+    lower_95_CI_percent = round(lower_95_CI * 100, 1),
+    upper_95_CI_percent = round(upper_95_CI * 100, 1)
+  )
+
+survival_rates
+
 # median follow-up
-fit_fu <- survfit(Surv(time, 1 - event) ~ 1, data = ES_data_survival)
+fit_fu <- survfit(Surv(survival_years, 1 - status) ~ 1, data = ES_data_survival)
 summary(fit_fu)$table[c("median","0.95LCL","0.95UCL")]
 
-ggsurvplot(ES_data_survival_rate, data = ES_data_survival,
-           conf.int = TRUE,
-           risk.table = TRUE,
-           risk.table.height = 0.25,  
-           risk.table.y.text.col = TRUE,
-           risk.table.y.text = FALSE, 
-           ggtheme = theme_classic(base_size = 12),
-           xlab = "Years since presentation",
-           ylab = "Overall survival probability")
+p_os <- ggsurvplot(
+  ES_data_survival_rate,
+  data = ES_data_survival,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  risk.table.type = "absolute",
+  risk.table.height = 0.15,
+  risk.table.y.text = FALSE,
+  risk.table.fontsize = 5,
+  legend = "none",
+  xlim = c(0, 15),
+  break.time.by = 1,
+  xlab = "Years since diagnosis",
+  ylab = "Overall survival probability",
+  ggtheme = theme_classic(base_size = 15)
+)
+
+p_os$table <- p_os$table +
+  labs(x = NULL, y = NULL) +
+  theme_void(base_size = 7) +
+  theme(
+    plot.title = element_text(size = 8, hjust = 0),
+    legend.position = "none" 
+  )
+
+p_os
+
+ES_data_survival_rate_ethnicity <- survfit(
+  Surv(survival_years, status) ~ Ethnicity1,
+  data = ES_data_survival
+)
+
+surv_summary_ethnicity <- summary(
+  ES_data_survival_rate_ethnicity,
+  times = c(5, 10, 15)
+)
+
+survival_rates_ethnicity <- data.frame(
+  ethnicity_group = surv_summary_ethnicity$strata,
+  time_years = surv_summary_ethnicity$time,
+  survival_rate = surv_summary_ethnicity$surv,
+  lower_95_CI = surv_summary_ethnicity$lower,
+  upper_95_CI = surv_summary_ethnicity$upper
+) %>%
+  mutate(
+    ethnicity_group = gsub("Ethnicity.category=", "", ethnicity_group),
+    survival = paste0(
+      round(survival_rate * 100, 1), "% (",
+      round(lower_95_CI * 100, 1), "–",
+      round(upper_95_CI * 100, 1), "%)"
+    ),
+    time_years = paste0(time_years, "-year")
+  )
+
+# Total number by ethnicity group
+ethnicity_n <- ES_data_survival %>%
+  count(Ethnicity1, name = "N") 
+
+# Final table
+survival_rates_ethnicity_table <- survival_rates_ethnicity %>%
+  select(ethnicity_group, time_years, survival) %>%
+  pivot_wider(
+    names_from = time_years,
+    values_from = survival
+  ) %>%
+  select(
+    ethnicity_group,
+    `5-year`,
+    `10-year`,
+    `15-year`
+  ) %>%
+  arrange(ethnicity_group)
+
+survival_rates_ethnicity_table
