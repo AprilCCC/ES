@@ -9,16 +9,32 @@ age_levels <- c(
   "0-4","5-9","10-14","15-19","20-24","25-29","30-34","35-39",
   "40-44","45-49","50-54","55-59","60-64","65-69","70-74","75-79",
   "80-84","85-89","90-94")
+str(ES$Diagnosis.date)
 
 ES_data <- ES %>%
   mutate(Presentation.age = as.numeric(Presentation.age),
+         Diagnosis.date = case_when(
+           Diagnosis.date %in% c("Missing", "") ~ NA_character_,
+           TRUE ~ Diagnosis.date),
+         Date.of.birth = case_when(
+           Date.of.birth %in% c("Missing", "") ~ NA_character_,
+           TRUE ~ Date.of.birth),
+         Diagnosis.date = as.Date(Diagnosis.date, format = "%Y-%m-%d"),
+         Date.of.birth = as.Date(Date.of.birth, format = "%Y-%m-%d"),
+             Presentation.age = case_when(
+               is.na(Presentation.age) &
+                 !is.na(Diagnosis.date) &
+                 !is.na(Date.of.birth) ~ as.numeric(difftime(Diagnosis.date, Date.of.birth, units = "days")) / 365.25,
+               TRUE ~ Presentation.age
+             ),
          Presentation.year = as.numeric(Presentation.year),
         year_period = cut(as.integer(Presentation.year),
                            c(1970,1981,1992,2003,2014,2025),
                            right = FALSE,
                            labels = c("1970-1980","1981-1991","1992-2002","2003-2013","2014-2024")),
          Rurality=case_when(GCH %in% c("U1","U2")~"Urban",GCH %in% c("R1","R2")~"Rural",TRUE~"Unknown"),
-         Ethnicity1=case_when(Ethnicity.category %in% c("MELAA","Missing") ~"Other/Unknown",TRUE~Ethnicity.category),
+         Ethnicity1=case_when(Ethnicity.category %in% c("MELAA", "Missing", "") ~"Other/Unknown",TRUE~Ethnicity.category),
+        Metastasisatdiagnosis=case_when(Metastasis.at.diagnosis%in% c("Missing", "") ~"Missing",TRUE~Metastasis.at.diagnosis),
          Location = case_when(
            Extraskeletal=="Yes" ~ "Extraskeletal",
            Extraskeletal!="Yes" & Site %in% c("Femur","Tibia","Fibula","Foot","Thigh","Humerus","Scapula","Clavicle") ~ "Appendicular",
@@ -33,7 +49,8 @@ ES_data <- ES %>%
             labels = c("0-4","5-9","10-14","15-19","20-24","25-29","30-34","35-39",
               "40-44","45-49","50-54","55-59","60-64","65-69","70-74","75-79","80-84","85-89"))),
           TRUE ~ "Unknown"),
-        age_group = factor(age_group, levels = c(age_levels, "Unknown")))
+        age_group = factor(age_group, levels = c(age_levels, "Unknown")),
+        age18 =case_when(Presentation.age < 18 ~"<18", Presentation.age >= 18 ~ ">=18",TRUE ~ "Unknown"))
 
 write.csv(ES_data, file="D:/Sarcoma/Result/ES_data.csv",row.names=FALSE)
 
@@ -614,13 +631,11 @@ write.csv(ES_data_year_year, file="D:/Sarcoma/Result/ES_data_year_year.csv",row.
 
 
 
-### survival #####
+## survival #####
 ES_data_survival <- ES_data %>%
   filter(
-    !is.na(Diagnosis.date),
-    Diagnosis.date != "Missing",
-    Diagnosis.date != ""
-  ) %>%
+    !is.na(Diagnosis.date)) %>%
+  filter(year(Diagnosis.date)>2013)%>%
   mutate(
     Diagnosis.date = as.Date(Diagnosis.date),
     Date.of.death = as.Date(Date.of.death),
@@ -688,6 +703,7 @@ p_os$table <- p_os$table +
 
 p_os
 
+# group by ethnicity
 ES_data_survival_rate_ethnicity <- survfit(
   Surv(survival_years, status) ~ Ethnicity1,
   data = ES_data_survival
@@ -729,9 +745,111 @@ survival_rates_ethnicity_table <- survival_rates_ethnicity %>%
   select(
     ethnicity_group,
     `5-year`,
-    `10-year`,
-    `15-year`
+    `10-year`
+   # `15-year`
   ) %>%
   arrange(ethnicity_group)
 
 survival_rates_ethnicity_table
+
+# group by metastasis at diagnosis
+ES_data_survival_rate_metastasis <- survfit(
+  Surv(survival_years, status) ~ Metastasisatdiagnosis,
+  data = ES_data_survival
+)
+
+surv_summary_metastasis <- summary(
+  ES_data_survival_rate_metastasis,
+  times = c(5, 10)
+)
+
+survival_rates_metastasis <- data.frame(
+  metastasis_group = surv_summary_metastasis$strata,
+  time_years = surv_summary_metastasis$time,
+  survival_rate = surv_summary_metastasis$surv,
+  lower_95_CI = surv_summary_metastasis$lower,
+  upper_95_CI = surv_summary_metastasis$upper
+) %>%
+  mutate(
+    metastasis_group = gsub("Metastasisatdiagnosis=", "", metastasis_group),
+    survival = paste0(
+      round(survival_rate * 100, 1), "% (",
+      round(lower_95_CI * 100, 1), "–",
+      round(upper_95_CI * 100, 1), "%)"
+    ),
+    time_years = paste0(time_years, "-year")
+  )
+
+# Total number by metastasis group
+metastasis_n <- ES_data_survival %>%
+  count(Metastasisatdiagnosis, name = "N") %>%
+  rename(metastasis_group = Metastasisatdiagnosis)
+
+# Final table
+survival_rates_metastasis_table <- survival_rates_metastasis %>%
+  select(metastasis_group, time_years, survival) %>%
+  pivot_wider(
+    names_from = time_years,
+    values_from = survival
+  ) %>%
+  left_join(metastasis_n, by = "metastasis_group") %>%
+  select(
+    metastasis_group,
+    N,
+    `5-year`,
+    `10-year`
+  ) %>%
+  arrange(metastasis_group)
+
+survival_rates_metastasis_table
+
+# group by age<18 and >=18
+ES_data_survival_rate_age18 <- survfit(
+  Surv(survival_years, status) ~ age18,
+  data = ES_data_survival
+)
+
+surv_summary_age18 <- summary(
+  ES_data_survival_rate_age18,
+  times = c(5, 10)
+)
+
+survival_rates_age18 <- data.frame(
+  age18_group = surv_summary_age18$strata,
+  time_years = surv_summary_age18$time,
+  survival_rate = surv_summary_age18$surv,
+  lower_95_CI = surv_summary_age18$lower,
+  upper_95_CI = surv_summary_age18$upper
+) %>%
+  mutate(
+    age18_group = gsub("age18=", "", age18_group),
+    survival = paste0(
+      round(survival_rate * 100, 1), "% (",
+      round(lower_95_CI * 100, 1), "–",
+      round(upper_95_CI * 100, 1), "%)"
+    ),
+    time_years = paste0(time_years, "-year")
+  )
+
+# Total number by age18 group
+age18_n <- ES_data_survival %>%
+  count(age18, name = "N") %>%
+  rename(age18_group = age18)
+
+# Final table
+survival_rates_age18_table <- survival_rates_age18 %>%
+  select(age18_group, time_years, survival) %>%
+  pivot_wider(
+    names_from = time_years,
+    values_from = survival
+  ) %>%
+  left_join(age18_n, by = "age18_group") %>%
+  select(
+    age18_group,
+    N,
+    `5-year`,
+    `10-year`
+  ) %>%
+  arrange(age18_group)
+
+survival_rates_age18_table
