@@ -631,7 +631,7 @@ write.csv(ES_data_year_year, file="D:/Sarcoma/Result/ES_data_year_year.csv",row.
 
 
 
-## survival #####
+## survival -----
 ES_data_survival <- ES_data %>%
   filter(
     !is.na(Diagnosis.date)) %>%
@@ -652,7 +652,7 @@ ES_data_survival <- ES_data %>%
 ES_data_survival_rate <- survfit(Surv(survival_years, status) ~ 1, data = ES_data_survival)
 summary(ES_data_survival_rate)
 
-# Overall survival rates at 1, 5, and 10 years
+### Overall survival rates at 1, 5, and 10 years -----
 surv_summary <- summary(
   ES_data_survival_rate,
   times = c(5, 10,15)
@@ -672,7 +672,7 @@ survival_rates <- data.frame(
 
 survival_rates
 
-# median follow-up
+### median follow-up -----
 fit_fu <- survfit(Surv(survival_years, 1 - status) ~ 1, data = ES_data_survival)
 summary(fit_fu)$table[c("median","0.95LCL","0.95UCL")]
 
@@ -703,16 +703,10 @@ p_os$table <- p_os$table +
 
 p_os
 
-# group by ethnicity
-ES_data_survival_rate_ethnicity <- survfit(
-  Surv(survival_years, status) ~ Ethnicity1,
-  data = ES_data_survival
-)
+### group by ethnicity -----
+ES_data_survival_rate_ethnicity <- survfit(Surv(survival_years, status) ~ Ethnicity1,data = ES_data_survival)
 
-surv_summary_ethnicity <- summary(
-  ES_data_survival_rate_ethnicity,
-  times = c(5, 10, 15)
-)
+surv_summary_ethnicity <- summary(ES_data_survival_rate_ethnicity,times = c(5, 10, 15))
 
 survival_rates_ethnicity <- data.frame(
   ethnicity_group = surv_summary_ethnicity$strata,
@@ -752,16 +746,49 @@ survival_rates_ethnicity_table <- survival_rates_ethnicity %>%
 
 survival_rates_ethnicity_table
 
-# group by metastasis at diagnosis
-ES_data_survival_rate_metastasis <- survfit(
-  Surv(survival_years, status) ~ Metastasisatdiagnosis,
-  data = ES_data_survival
+p_os_ethnicity <- ggsurvplot(
+  ES_data_survival_rate_ethnicity,
+  data = ES_data_survival,
+  conf.int = FALSE,
+  pval = TRUE,
+  pval.coord = c(1, 0.08),
+  risk.table = TRUE,
+  risk.table.type = "absolute",
+  risk.table.height = 0.25,
+  risk.table.y.text = TRUE,
+  risk.table.y.text.col = TRUE,
+  risk.table.fontsize = 4,
+  legend = "top",
+  legend.title = "Ethnicity",
+  legend.labs = c("Asian", "European", "Maori", "Other/Unknown", "Pacific"),
+  xlim = c(0, 10),
+  break.time.by = 1,
+  xlab = "Years since diagnosis",
+  ylab = "Overall survival probability",
+  ggtheme = theme_classic(base_size = 15)
 )
+
+p_os_ethnicity$table <- p_os_ethnicity$table +
+  labs(x = NULL, y = NULL) +
+  theme_classic(base_size = 6) +
+  theme(
+    plot.title = element_text(size = 7, hjust = 0),
+    legend.position = "none",
+    axis.text.y = element_text(size = 9),
+    axis.text.x = element_blank(),axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),axis.line.x = element_blank(),
+    axis.line.y = element_blank(),panel.border = element_blank(),panel.grid = element_blank())
+
+p_os_ethnicity
+
+
+## group by metastasis at diagnosis -----
+ES_data_survival_rate_metastasis <- survfit(
+  Surv(survival_years, status) ~ Metastasisatdiagnosis,data = ES_data_survival)
 
 surv_summary_metastasis <- summary(
   ES_data_survival_rate_metastasis,
-  times = c(5, 10)
-)
+  times = c(5, 10))
 
 survival_rates_metastasis <- data.frame(
   metastasis_group = surv_summary_metastasis$strata,
@@ -803,11 +830,56 @@ survival_rates_metastasis_table <- survival_rates_metastasis %>%
 
 survival_rates_metastasis_table
 
-# group by age<18 and >=18
-ES_data_survival_rate_age18 <- survfit(
-  Surv(survival_years, status) ~ age18,
-  data = ES_data_survival
+p_os_metastasis <- ggsurvplot(
+  ES_data_survival_rate_metastasis,
+  data = ES_data_survival,
+  conf.int = FALSE,
+  pval = TRUE,
+  pval.coord = c(1, 0.08),
+  risk.table = TRUE,
+  risk.table.type = "absolute",
+  risk.table.height = 0.15,
+  risk.table.y.text = TRUE,
+  risk.table.y.text.col = TRUE,
+  risk.table.fontsize = 4,
+  legend = "top",
+  legend.title = "Metastasis at diagnosis",
+  legend.labs = c("Unknown", "No", "Yes"),
+  xlim = c(0, 10),
+  break.time.by = 1,
+  xlab = "Years since diagnosis",
+  ylab = "Overall survival probability",
+  ggtheme = theme_classic(base_size = 15)
 )
+
+p_os_metastasis$table <- p_os_metastasis$table +
+  labs(x = NULL, y = NULL) +
+  theme_classic(base_size = 6) +
+  theme(
+    plot.title = element_text(size = 7, hjust = 0),
+    legend.position = "none",
+    axis.text.y = element_text(size = 9),
+    axis.text.x = element_blank(),axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),axis.line.x = element_blank(),
+    axis.line.y = element_blank(),panel.border = element_blank(),panel.grid = element_blank())
+
+p_os_metastasis
+
+# Pairwise log-rank test with Bonferroni correction
+pairwise_result <- pairwise_survdiff(
+  Surv(survival_years, status) ~ Metastasisatdiagnosis,
+  data = ES_data_survival,
+  p.adjust.method = "bonferroni"  # or "BH" for Benjamini-Hochberg
+)
+
+# View results
+print(pairwise_result)
+
+
+
+## group by age<18 and >=18 -----
+ES_data_survival_rate_age18 <- survfit(
+  Surv(survival_years, status) ~ age18,data = ES_data_survival)
 
 surv_summary_age18 <- summary(
   ES_data_survival_rate_age18,
@@ -853,3 +925,39 @@ survival_rates_age18_table <- survival_rates_age18 %>%
   arrange(age18_group)
 
 survival_rates_age18_table
+
+p_os_age18 <- ggsurvplot(
+  ES_data_survival_rate_age18,
+  data = ES_data_survival,
+  conf.int = FALSE,
+  pval = TRUE,
+  pval.coord = c(1, 0.08),
+  risk.table = TRUE,
+  risk.table.type = "absolute",
+  risk.table.height = 0.15,
+  risk.table.y.text = TRUE,
+  risk.table.y.text.col = TRUE,
+  risk.table.fontsize = 4,
+  legend = "top",
+  legend.title = "Age group",
+  legend.labs = c("<18", "≥18"),
+  xlim = c(0, 10),
+  break.time.by = 1,
+  xlab = "Years since diagnosis",
+  ylab = "Overall survival probability",
+  ggtheme = theme_classic(base_size = 15)
+)
+
+p_os_age18$table <- p_os_age18$table +
+  labs(x = NULL, y = NULL) +
+  theme_classic(base_size = 6) +
+  theme(
+    plot.title = element_text(size = 7, hjust = 0),
+    legend.position = "none",
+    axis.text.y = element_text(size = 9),
+    axis.text.x = element_blank(),axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),axis.line.x = element_blank(),
+    axis.line.y = element_blank(),panel.border = element_blank(),panel.grid = element_blank())
+
+p_os_age18
+
