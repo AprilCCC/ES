@@ -1,21 +1,22 @@
 packages <- c(
-  "readxl", "dplyr", "tidyverse", "tableone", "epitools", "gtsummary", "dsr","survival","survminer","splines")
+  "readxl", "dplyr", "tidyverse", "tableone", "epitools", "gtsummary", "dsr","survival","survminer","splines","lubridate")
 
 lapply(packages, require, character.only = TRUE)
 
-ES <- read.csv("D:/Sarcoma/Data/EwingSarcoma_DATA_LABELS_2026-05-13_1758.csv") 
+ES <- read.csv("D:/Sarcoma/Data/EwingSarcoma_DATA_LABELS_2026-07-23_1749.csv") 
 
 age_levels <- c(
   "0-4","5-9","10-14","15-19","20-24","25-29","30-34","35-39",
   "40-44","45-49","50-54","55-59","60-64","65-69","70-74","75-79",
   "80-84","85-89","90-94")
-str(ES$Diagnosis.date)
+
 
 ES_data <- ES %>%
-  mutate(Presentation.age = as.numeric(Presentation.age),
-         Diagnosis.date = case_when(
-           Diagnosis.date %in% c("Missing", "") ~ NA_character_,
-           TRUE ~ Diagnosis.date),
+  mutate(
+    Diagnosis.date = as.Date(na_if(na_if(Diagnosis.date, "Missing"), "")),
+    Presentation.age = as.numeric(na_if(na_if(Presentation.age, "Missing"), "")),
+    Presentation.year = coalesce(as.integer(na_if(na_if(Presentation.year, "Missing"), "")),as.integer(format(Diagnosis.date, "%Y"))))%>%
+  mutate(
          Date.of.birth = case_when(
            Date.of.birth %in% c("Missing", "") ~ NA_character_,
            TRUE ~ Date.of.birth),
@@ -50,7 +51,10 @@ ES_data <- ES %>%
               "40-44","45-49","50-54","55-59","60-64","65-69","70-74","75-79","80-84","85-89"))),
           TRUE ~ "Unknown"),
         age_group = factor(age_group, levels = c(age_levels, "Unknown")),
-        age18 =case_when(Presentation.age < 18 ~"<18", Presentation.age >= 18 ~ ">=18",TRUE ~ "Unknown"))
+        age18 =case_when(Presentation.age < 18 ~"<18", Presentation.age >= 18 ~ ">=18",TRUE ~ "Unknown"),
+        across(
+          where(is.character),~ if_else(is.na(.) | trimws(.) == "", "Missing", trimws(.))))%>%
+  filter(!is.na(Presentation.year))
 
 write.csv(ES_data, file="D:/Sarcoma/Result/ES_data.csv",row.names=FALSE)
 
@@ -97,7 +101,6 @@ eth_Table <- ES_data %>%
   select(Presentation.age,Gender,Ethnicity1,year_period,Rurality,Laterality,Location,Extraskeletal,Metastasis.at.diagnosis,
          Surgery,Chemotherapy,Radiotherapy,FISH.for.EWSR1) %>%
   mutate(Ethnicity1 = fct_relevel(Ethnicity1, c("Maori", "Pacific", "Asian", "European", "Other/Unknown"))) %>% 
-  mutate(Ethnicity1 = case_when(Ethnicity1 %in% c("Other/Unknown","European")~"European/other",TRUE ~ Ethnicity1)) %>%
   tbl_summary(
     by=Ethnicity1,
     percent = "column", 
@@ -108,14 +111,12 @@ eth_Table <- ES_data %>%
   add_overall()%>%
   add_p(
     test = list(
-      c(
-        Gender, Rurality, Extraskeletal, Metastasis.at.diagnosis,
-        FISH.for.EWSR1, Surgery, Chemotherapy, Radiotherapy
-      ) ~ "fisher.test",
-      c(Laterality, Location, year_period) ~ "fisher.test"),
+      all_continuous() ~ "kruskal.test",
+      all_of(fisher_vars) ~ "fisher.test"),
     test.args = list(
-      c(Laterality, Location, year_period) ~
-        list(simulate.p.value = TRUE, B = 5000)),
+      all_of(fisher_vars) ~ list(
+        simulate.p.value = TRUE,
+        B = 10000)),
     pvalue_fun = function(x) formatC(x, format = "f", digits = 4))
 
 ES_data %>%
@@ -421,7 +422,7 @@ write.csv(predicted_EU_pop, file="D:/Sarcoma/Result/predicted_EU_pop.csv",row.na
 ES_data_count <- ES_data %>%
   filter(Ethnicity1=="European")%>%  #, FISH.for.EWSR1=="Positive"
   #filter(age_group %in% paste(seq(0, 45, by = 5), seq(4, 49, by = 5), sep = "-")) %>%
-  filter(age_group %in% c("10-14","15-19")) %>%
+  #filter(age_group %in% c("10-14","15-19")) %>%
   select(Presentation.year, age_group) %>%
   group_by(Presentation.year, age_group) %>%
   summarise(count = n(), .groups = "drop") %>%
@@ -638,7 +639,9 @@ ES_data_survival <- ES_data %>%
   filter(year(Diagnosis.date)>2013)%>%
   mutate(
     Diagnosis.date = as.Date(Diagnosis.date),
-    Date.of.death = as.Date(Date.of.death),
+    Date.of.death = as.Date(
+      na_if(na_if(Date.of.death, "Missing"), ""),
+      format = "%Y-%m-%d"),
     censor_date = as.Date("2025-06-30"),
     end_date = if_else(
       is.na(Date.of.death),
