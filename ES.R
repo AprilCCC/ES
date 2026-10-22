@@ -3,7 +3,7 @@ packages <- c(
 
 lapply(packages, require, character.only = TRUE)
 
-ES <- read.csv("D:/Sarcoma/Data/EwingSarcoma_DATA_LABELS_2026-07-23_1749.csv") 
+ES <- read.csv("D:/Sarcoma/Data/EwingSarcoma_DATA_LABELS_2026-10-22_2014.csv") 
 
 age_levels <- c(
   "0-4","5-9","10-14","15-19","20-24","25-29","30-34","35-39",
@@ -35,13 +35,15 @@ ES_data <- ES %>%
                            labels = c("1970-1980","1981-1991","1992-2002","2003-2013","2014-2024")),
          Rurality=case_when(GCH %in% c("U1","U2")~"Urban",GCH %in% c("R1","R2")~"Rural",TRUE~"Unknown"),
          Ethnicity1=case_when(Ethnicity.category %in% c("MELAA", "Missing", "") ~"Other/Unknown",TRUE~Ethnicity.category),
-        Metastasisatdiagnosis=case_when(Metastasis.at.diagnosis%in% c("Missing", "") ~"Missing",TRUE~Metastasis.at.diagnosis),
+        Metastasisatdiagnosis=case_when(is.na(Metastasis.at.diagnosis) | Metastasis.at.diagnosis%in% c("Missing", "") ~"Missing",TRUE~Metastasis.at.diagnosis),
          Location = case_when(
            Extraskeletal=="Yes" ~ "Extraskeletal",
            Extraskeletal!="Yes" & Site %in% c("Femur","Tibia","Fibula","Foot","Thigh","Humerus","Scapula","Clavicle") ~ "Appendicular",
            Extraskeletal!="Yes" & Site %in% c("Pelvis","Ilium","Sacrum",
                        "Cervical spine","Thoracic spine","Lumbar spine","Chest wall","Rib") ~ "Axial",
           Site == "Missing" ~ "Missing",TRUE ~ "Other"),
+        FISH.for.EWSR1 = case_when(is.na(FISH.for.EWSR1) | FISH.for.EWSR1 == "Not applicable" ~ "Missing",
+                                            TRUE ~ FISH.for.EWSR1),
         age_group = case_when(
           Presentation.age >= 0 & Presentation.age <= 90 ~ as.character(cut(
             Presentation.age,
@@ -81,6 +83,17 @@ ES_data %>%
   labs(x = "Age at presentation (years)", y = "Count", colour = "Ethnicity1") +
   theme_classic()
 
+# age EWSR1 testing -----
+ES_data %>%
+  filter(!is.na(Presentation.year), !is.na(FISH.for.EWSR1)) %>%
+  ggplot(aes(x = Presentation.year, colour = FISH.for.EWSR1)) +
+  geom_freqpoly(binwidth = 5, boundary = 0, linewidth = 1) +
+  scale_x_continuous(
+    breaks = c(seq(1970, 2020, by = 5), 2024)) +
+  coord_cartesian(xlim = c(1970, 2024), expand = FALSE) +
+  labs(x = "Presentation year", y = "Count", colour = "FISH.for.EWSR1") +
+  theme_classic()
+
 # characteristics by EWSR1 testing -----
 EWSR1_Table <- ES_data %>%
   #filter(Presentation.year>=1998)%>%
@@ -97,7 +110,7 @@ EWSR1_Table <- ES_data %>%
 
 # characteristics by ethnic groups -----
 eth_Table <- ES_data %>%
-  filter(Presentation.age <=49)%>%
+  #filter(Presentation.age <=49)%>%
   select(Presentation.age,Gender,Ethnicity1,year_period,Rurality,Laterality,Location,Extraskeletal,Metastasis.at.diagnosis,
          Surgery,Chemotherapy,Radiotherapy,FISH.for.EWSR1) %>%
   mutate(Ethnicity1 = fct_relevel(Ethnicity1, c("Maori", "Pacific", "Asian", "European", "Other/Unknown"))) %>% 
@@ -632,10 +645,9 @@ write.csv(ES_data_year_year, file="D:/Sarcoma/Result/ES_data_year_year.csv",row.
 
 
 
-## survival -----
+# survival -----
 ES_data_survival <- ES_data %>%
-  filter(
-    !is.na(Diagnosis.date)) %>%
+  filter(!is.na(Diagnosis.date)) %>%
   filter(year(Diagnosis.date)>2013)%>%
   mutate(
     Diagnosis.date = as.Date(Diagnosis.date),
@@ -658,7 +670,7 @@ summary(ES_data_survival_rate)
 ### Overall survival rates at 1, 5, and 10 years -----
 surv_summary <- summary(
   ES_data_survival_rate,
-  times = c(5, 10,15)
+  times = c(5, 10, 15)
 )
 
 survival_rates <- data.frame(
@@ -743,7 +755,7 @@ survival_rates_ethnicity_table <- survival_rates_ethnicity %>%
     ethnicity_group,
     `5-year`,
     `10-year`
-   # `15-year`
+   #`15-year`
   ) %>%
   arrange(ethnicity_group)
 
